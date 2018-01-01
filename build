@@ -1,0 +1,14 @@
+#!/bin/bash
+VIDEO="$1"
+
+mkdir tmp
+cp -R standalone/ tmp/
+cp -R media/$VIDEO/ "tmp/stream"
+cd tmp
+echo $2 > ./expires
+#env GOOS=windows GOARCH=amd64 packr build -o "../dist/psp-$VIDEO.exe" # uncomment to generate windows binary files
+env GOOS=darwin GOARCH=amd64 packr build -o "../dist/psp-$VIDEO"
+cd ..
+rm -rf tmp
+echo "All finished, opening psp-$VIDEO now..."
+./dist/psp-$VIDEO

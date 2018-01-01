@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>Perspectives Streaming Service</title>
+  <script src="js/dash.all.min.js"></script>
+  <!--dash.all.min.js should be used in production over dash.all.debug.js
+        Debug files are not compressed or obfuscated making the file size much larger compared with dash.all.min.js-->
+  <!--<script src="../../dist/dash.all.min.js"></script>-->
+  <script>
+    window.onbeforeunload = function(){
+      var xhttp = new XMLHttpRequest();
+      xhttp.open("GET", "/exit", true);
+      xhttp.send();
+    }
+  </script>
+  <style>
+    html,
+    body {
+      margin: 0px;
+      padding: 0px
+    }
+    video {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <div>
+    <video data-dashjs-player autoplay src="/stream/stream.mpd" controls/>
+  </div>
+</body>
+
+</html>
