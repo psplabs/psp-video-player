@@ -1,14 +1,31 @@
 #!/bin/bash
 VIDEO="$1"
+EXPIRES="$2"
+PLATFORM="$3"
 
 mkdir tmp
-cp -R standalone/ tmp/
-cp -R media/$VIDEO/ "tmp/stream"
+cp app.go tmp/
+cp -R static/ tmp/static/
+rm tmp/static/index.html
+mv tmp/static/standalone.html tmp/static/index.html
+cp -R media/$VIDEO/ "tmp/static/media"
 cd tmp
-echo $2 > ./expires
-#env GOOS=windows GOARCH=amd64 packr build -o "../dist/psp-$VIDEO.exe" # uncomment to generate windows binary files
-env GOOS=darwin GOARCH=amd64 packr build -o "../dist/psp-$VIDEO"
+echo $EXPIRES > ./expires
+
+rm "../dist/psp-$VIDEO.zip"
+
+if [ "$PLATFORM" = "windows" ]; then
+    env GOOS=windows GOARCH=amd64 packr build -o "../dist/psp-$VIDEO.exe"
+    cd ../dist
+    zip "psp-$VIDEO.zip" "psp-$VIDEO.exe"
+    rm psp-$VIDEO.exe
+else
+    env GOOS=darwin GOARCH=amd64 packr build -o "../dist/psp-$VIDEO"
+    cd ../dist
+    zip "psp-$VIDEO.zip" "psp-$VIDEO"
+    rm psp-$VIDEO
+fi
+
 cd ..
 rm -rf tmp
-echo "All finished, opening psp-$VIDEO now..."
-./dist/psp-$VIDEO
+echo "psp-$VIDEO.zip"

@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/djherbis/times"
 	"github.com/gobuffalo/packr"
 )
 
@@ -35,14 +35,70 @@ func main() {
 
 	log.Println("Server ready, opening browser...")
 
-	go open("http://localhost:3000/")        // open the browser window automatically
-	panic(http.ListenAndServe(":3000", nil)) // start the server
+	go open("http://localhost:3000/")              // open the browser window automatically
+	log.Println(http.ListenAndServe(":3000", nil)) // start the server
 }
 
 func download(w http.ResponseWriter, r *http.Request) {
-	log.Println("Copying...")
-	CopyDir("./tmp", "./static")
-	fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
+	urlPart := strings.Split(r.URL.Path, "/")
+	video := urlPart[2]
+	platform := ""
+
+	if len(urlPart) > 3 {
+		platform = urlPart[3]
+	}
+
+	fmt.Printf("Downloading %s\n", video)
+
+	expires := time.Now().Add(time.Minute * time.Duration(1440*2)).Unix() // 2 days
+	var args []string
+	args = []string{video, strconv.FormatInt(expires, 10), platform}
+	out, err := exec.Command("./build", args...).Output()
+
+	if err != nil {
+		fmt.Printf("output is %s\n", err)
+		log.Fatal(err)
+	}
+
+	fmt.Printf("%s", out)
+
+	Filename := "psp-" + video + ".zip"
+	fpath := "./dist/" + Filename
+
+	//Check if file exists and open
+	Openfile, err := os.Open(fpath)
+	defer Openfile.Close() //Close after function return
+	if err != nil {
+		//File not found, send 404
+		http.Error(w, "File not found: "+fpath, 404)
+		return
+	}
+
+	//File is found, create and send the correct headers
+
+	//Get the Content-Type of the file
+	//Create a buffer to store the header of the file in
+	FileHeader := make([]byte, 512)
+	//Copy the headers into the FileHeader buffer
+	Openfile.Read(FileHeader)
+	//Get content type of file
+	FileContentType := http.DetectContentType(FileHeader)
+
+	//Get the file size
+	FileStat, _ := Openfile.Stat()                     //Get info from file
+	FileSize := strconv.FormatInt(FileStat.Size(), 10) //Get file size as a string
+
+	//Send the headers
+	w.Header().Set("Content-Disposition", "attachment; filename="+string(Filename))
+	w.Header().Set("Content-Type", FileContentType)
+	w.Header().Set("Content-Length", FileSize)
+
+	//Send the file
+	//We read 512 bytes from the file already so we reset the offset back to 0
+	Openfile.Seek(0, 0)
+	io.Copy(w, Openfile) //'Copy' the file to the client
+	return
+
 }
 
 // exists returns whether the given file or directory exists or not
@@ -77,16 +133,24 @@ func open(url string) error {
 
 // checks to see if this file is expired, and self destructs if it is.
 func isExpired() {
-	t, err := times.Stat(os.Args[0])
+	s, err := ioutil.ReadFile("expires") // just pass the file name
 	if err != nil {
-		log.Fatal(err.Error())
-	}
+		fmt.Print(err)
 
-	expiresOn := t.ChangeTime().Add(time.Minute * time.Duration(1440*2)) // Expires after 48 hours
-	isExpired := time.Now().After(expiresOn) || time.Now().Before(t.ChangeTime())
+	} else {
 
-	if isExpired {
-		selfDestruct()
+		expires, err := strconv.ParseInt(strings.Replace(string(s), "\n", "", -1), 10, 64)
+
+		if err != nil {
+			panic(err)
+		}
+
+		expiresOn := time.Unix(expires, 0) // Expires after 48 hours
+		isExpired := time.Now().After(expiresOn)
+
+		if isExpired {
+			selfDestruct()
+		}
 	}
 }
 
@@ -99,108 +163,6 @@ func selfDestruct() {
 	} else {
 		os.Exit(0)
 	}
-}
-
-// CopyFile copies the contents of the file named src to the file named
-// by dst. The file will be created if it does not already exist. If the
-// destination file exists, all it's contents will be replaced by the contents
-// of the source file. The file mode will be copied from the source and
-// the copied data is synced/flushed to stable storage.
-func CopyFile(src, dst string) (err error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return
-	}
-	defer func() {
-		if e := out.Close(); e != nil {
-			err = e
-		}
-	}()
-
-	_, err = io.Copy(out, in)
-	if err != nil {
-		return
-	}
-
-	err = out.Sync()
-	if err != nil {
-		return
-	}
-
-	si, err := os.Stat(src)
-	if err != nil {
-		return
-	}
-	err = os.Chmod(dst, si.Mode())
-	if err != nil {
-		return
-	}
-
-	return
-}
-
-// CopyDir recursively copies a directory tree, attempting to preserve permissions.
-// Source directory must exist, destination directory must *not* exist.
-// Symlinks are ignored and skipped.
-func CopyDir(src string, dst string) (err error) {
-	src = filepath.Clean(src)
-	dst = filepath.Clean(dst)
-
-	si, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if !si.IsDir() {
-		return fmt.Errorf("source is not a directory")
-	}
-
-	_, err = os.Stat(dst)
-	if err != nil && !os.IsNotExist(err) {
-		return
-	}
-	if err == nil {
-		return fmt.Errorf("destination already exists")
-	}
-
-	err = os.MkdirAll(dst, si.Mode())
-	if err != nil {
-		return
-	}
-
-	entries, err := ioutil.ReadDir(src)
-	if err != nil {
-		return
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		if entry.IsDir() {
-			err = CopyDir(srcPath, dstPath)
-			if err != nil {
-				return
-			}
-		} else {
-			// Skip symlinks.
-			if entry.Mode()&os.ModeSymlink != 0 {
-				continue
-			}
-
-			err = CopyFile(srcPath, dstPath)
-			if err != nil {
-				return
-			}
-		}
-	}
-
-	return
 }
 
 func exit(w http.ResponseWriter, r *http.Request) {
